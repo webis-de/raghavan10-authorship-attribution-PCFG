@@ -15,6 +15,8 @@ from nltk.grammar import Production
 from nltk.grammar import PCFG
 import nltk
 
+import multiprocessing
+
 
 class Database:
 
@@ -196,6 +198,26 @@ def _traverse_productions(tree):
         productions.append(Production(Nonterminal(tree.label()), tuple(child_nonterminals)))
     return productions
 
+def train_author(candidate):
+    # initialize a stanford parser to treebank texts
+    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
+    sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
+    author = Author(candidate)
+    k = 0 # TODO remove
+    if k > 0: print(k, "text(s) per author") # TODO remove
+    for training in jsonhandler.trainings[candidate]:
+        logging.info(
+            "Author '%s': Loading training '%s'", candidate, training)
+        text = Text(jsonhandler.getTrainingText(candidate, training),
+                candidate + " " + training, sent_detector, parser)
+        author.add_text(text)
+        k -= 1 # TODO remove
+        if k == 0: break # TODO remove
+    author.buildPCFG()
+
+    return author
+
 def tira(corpusdir, outputdir):
     """
     Keyword arguments:
@@ -208,40 +230,31 @@ def tira(corpusdir, outputdir):
     # load and process the training data
     logging.info("Load the training data...")
     database = Database()
-    # initialize a stanford parser to treebank texts
-    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
-    sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
-    j = 0 # TODO remove
-    if j > 0: print(j, "author(s)") # TODO remove
-    for candidate in jsonhandler.candidates:
-        author = Author(candidate)
-        k = 0 # TODO remove
-        if k > 0: print(k, "text(s) per author") # TODO remove
-        for training in jsonhandler.trainings[candidate]:
-            logging.info(
-                "Author '%s': Loading training '%s'", candidate, training)
-            text = Text(jsonhandler.getTrainingText(candidate, training),
-                    candidate + " " + training, sent_detector, parser)
-            author.add_text(text)
-            k -= 1 # TODO remove
-            if k == 0: break # TODO remove
-        author.buildPCFG()
+
+    number_processes = multiprocessing.cpu_count() - 1
+    author_pool = multiprocessing.Pool(number_processes)
+
+    for author in author_pool.imap_unordered(train_author, jsonhandler.candidates):
         database.add_author(author)
-        j -= 1 # TODO remove
-        if j == 0: break # TODO remove
+
+    author_pool.close()
+    author_pool.join()
 
     # run the testcases
+    unknowns = [] # avoid problems
     results = []
+
     l = 0 # TODO remove
     if l > 0: print(j, "unknown(s)") # TODO remove
     for unknown in jsonhandler.unknowns:
         text = Text(jsonhandler.getUnknownText(unknown),
                         unknown, sent_detector, parser)
+        unknowns.append(unknown)
         results.append(database.find_author(text))
         l -= 1 # TODO remove
         if l == 0: break # TODO remove
 
-    jsonhandler.storeJson(outputdir, jsonhandler.unknowns, results)
+    jsonhandler.storeJson(outputdir, unknowns, results)
     
 
 def main():
