@@ -4,6 +4,9 @@ import string
 import jsonhandler
 import argparse
 
+import math
+from decimal import Decimal
+
 # natural language toolkit:
 from nltk.parse.stanford import StanfordParser
 from nltk.tree import Tree
@@ -34,10 +37,15 @@ class Database:
     def find_author(self, text):
         probabilities = {}
 
+        minimum = 1 # find minimum probability over all productions and authors
         for author in self.authors:
-            probabilities[author.name] = author.compute_probability(text)
+            for lhs in author.pcfg_prob:
+                minimum = min(minimum, min(author.pcfg_prob[lhs].values()))
 
-        print("text", text.name, "by author", max(probabilities, key=probabilities.get), "prob:", max(probabilities))
+        for author in self.authors:
+            probabilities[author.name] = author.compute_probability(text, minimum)
+
+        print("text", text.name, "by author", max(probabilities, key=probabilities.get), "prob:", max(probabilities.values()))
         return max(probabilities, key=probabilities.get)
 
 
@@ -80,15 +88,18 @@ class Author:
 
         self.pcfg_prob = pcfg_probabilities
 
-    def compute_probability(self, text):
-        probability_value = 0
+    def compute_probability(self, text, minimum):
+        probability_value = Decimal(0)  # log(1) = 0
 
         for prod in text.productions:
             if prod.lhs() in self.pcfg_prob and prod.rhs() in self.pcfg_prob[prod.lhs()]:
-              probability_value += self.pcfg_prob[prod.lhs()][prod.rhs()]
+                # multiply probabilities - csp. to addition in logarithmic space
+                probability_value += Decimal(math.log(self.pcfg_prob[prod.lhs()][prod.rhs()]))
+            else:
+                probability_value += Decimal(math.log(minimum))
 
-        print("computed:",float(probability_value) / len(text.productions), "for author", self.name)
-        return float(probability_value) / len(text.productions) # return average of production probabilities
+        print("computed:", probability_value, "for author", self.name)
+        return probability_value
 
 class Text:
 
