@@ -23,6 +23,7 @@ import pickle
 
 corpusdir = ""
 outputdir = ""
+parser = None
 
 class Database:
 
@@ -111,7 +112,7 @@ class Text:
 
     """Represents a single text."""
 
-    def __init__(self, raw, name, parser):
+    def __init__(self, raw, name):
         """
         Initialize a text object with raw text.
 
@@ -123,9 +124,6 @@ class Text:
         self.raw = raw
 
         # load production rules from cache if possible
-        if not os.path.exists(".text_cache/" + corpusdir):
-            os.makedirs(".text_cache/" + corpusdir)
-
         if os.path.exists(".text_cache/" + corpusdir + self.name):
             with open(".text_cache/" + corpusdir + self.name,'rb') as handle:
                 self.productions = pickle.load(handle)
@@ -133,7 +131,7 @@ class Text:
         else:
             print("Processing text", self.name)
             preprocessed = self.preprocess()
-            treebanked = self.treebank(preprocessed, parser)
+            treebanked = self.treebank(preprocessed)
             self.productions = self.compute_productions(treebanked)
 
             with open(".text_cache/" + corpusdir + self.name,'wb') as handle:
@@ -159,11 +157,13 @@ class Text:
         """
         return nltk.tokenize.sent_tokenize(self.clean(self.raw))
 
-    def treebank(self, preprocessed, parser):
+    def treebank(self, preprocessed):
         """
         Treebank the preprocessed text.
         """
         treebanked = []
+
+        global parser
 
         for sentence in preprocessed:
             treebanked.append(parser.raw_parse(sentence))
@@ -191,8 +191,7 @@ def _traverse_productions(tree):
     return productions
 
 def train_author(candidate):
-    # initialize a stanford parser to treebank texts
-    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishRNN.ser.gz")
+    global parser
 
     author = Author(candidate)
     k = 0 # TODO remove
@@ -201,13 +200,17 @@ def train_author(candidate):
         logging.info(
             "Author '%s': Loading training '%s'", candidate, training)
         text = Text(jsonhandler.getTrainingText(candidate, training),
-                candidate + "-" + training, parser)
+                candidate + "-" + training)
         author.add_text(text)
         k -= 1 # TODO remove
         if k == 0: break # TODO remove
     author.buildPCFG()
 
     return author
+
+def read_unknown(unknown):
+    return Text(jsonhandler.getUnknownText(unknown),
+                unknown)
 
 def tira(corpusdir, outputdir):
     """
@@ -216,39 +219,39 @@ def tira(corpusdir, outputdir):
     outputdir -- Output directory
     """
     jsonhandler.loadJson(corpusdir)
-    jsonhandler.loadTraining()
 
     # load and process the training data
     logging.info("Load the training data...")
-    database = Database()
-
-    number_processes = multiprocessing.cpu_count() - 1
-    author_pool = multiprocessing.Pool(number_processes)
-
-    for author in author_pool.imap_unordered(train_author, jsonhandler.candidates):
-        database.add_author(author)
-
-    author_pool.close()
-    author_pool.join()
-
-    # run the testcases
-    unknowns = [] # avoid problems
-    results = []
+    jsonhandler.loadTraining()
 
     # initialize a stanford parser to treebank texts
+    global parser
     parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
 
-    l = 0 # TODO remove
-    if l > 0: print(j, "unknown(s)") # TODO remove
-    for unknown in jsonhandler.unknowns:
-        text = Text(jsonhandler.getUnknownText(unknown),
-                        unknown, parser)
-        unknowns.append(unknown)
-        results.append(database.find_author(text))
-        l -= 1 # TODO remove
-        if l == 0: break # TODO remove
+    # initialize a database of authors
+    database = Database()
 
-    jsonhandler.storeJson(outputdir, unknowns, results)
+    # multithreading to parallelize text parsing
+    number_processes = multiprocessing.cpu_count() - 1
+    text_pool = multiprocessing.Pool(number_processes)
+
+    # parse author training documents
+    for author in text_pool.imap_unordered(train_author, jsonhandler.candidates):
+        database.add_author(author)
+
+    # parse unknown test documents
+    unknowns = text_pool.imap_unordered(read_unknown, jsonhandler.unknowns)
+
+    text_pool.close()
+    text_pool.join()
+
+    # run the testcases
+    results = {} # unknown_text -> computed_author
+
+    for unknown in unknowns:
+        results[unknown.name] = database.find_author(unknown)
+
+    jsonhandler.storeJson(outputdir, results.keys(), results.values())
     
 
 def main():
@@ -265,6 +268,11 @@ def main():
     global outputdir
     outputdir = args['o']
 
+    # initialize cache directory
+    if not os.path.exists(".text_cache/" + corpusdir):
+        os.makedirs(".text_cache/" + corpusdir)
+
+    # start evaluation
     tira(corpusdir, outputdir)
 
 
