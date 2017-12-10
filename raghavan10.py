@@ -22,6 +22,7 @@ import pickle
 
 
 corpusdir = ""
+cache_dir = ""
 outputdir = ""
 parser = None
 
@@ -37,6 +38,7 @@ class Database:
         # The following list contains all authors
         # of the database.
         self.authors = []
+        self.minimum = -1
 
     def add_author(self, *authors):
         """Add authors to the database."""
@@ -46,16 +48,19 @@ class Database:
     def find_author(self, text):
         probabilities = {}
 
-        minimum = 1 # find minimum probability over all productions and authors
+        if self.minimum < 0:
+            self.compute_minimum()
+
+        for author in self.authors:
+            probabilities[author.name] = author.compute_probability(text, self.minimum)
+
+        return max(probabilities, key=probabilities.get)
+
+    def compute_minimum(self):
+        self.minimum = 1 # find minimum probability over all productions and authors
         for author in self.authors:
             for lhs in author.pcfg_prob:
-                minimum = min(minimum, min(author.pcfg_prob[lhs].values()))
-
-        for author in self.authors:
-            probabilities[author.name] = author.compute_probability(text, minimum)
-
-        print("text", text.name, "by author", max(probabilities, key=probabilities.get), "prob:", max(probabilities.values()))
-        return max(probabilities, key=probabilities.get)
+                self.minimum = min(self.minimum, min(author.pcfg_prob[lhs].values()))
 
 
 class Author:
@@ -105,7 +110,7 @@ class Author:
             else:
                 probability_value += Decimal(math.log(minimum))
 
-        print("computed:", probability_value, "for author", self.name)
+        logging.info("computed:", probability_value, "for author", self.name)
         return probability_value
 
 class Text:
@@ -124,17 +129,17 @@ class Text:
         self.raw = raw
 
         # load production rules from cache if possible
-        if os.path.exists(".text_cache/" + corpusdir + self.name):
-            with open(".text_cache/" + corpusdir + self.name,'rb') as handle:
+        if os.path.exists(".text_cache/" + cache_dir + self.name):
+            with open(".text_cache/" + cache_dir + self.name,'rb') as handle:
                 self.productions = pickle.load(handle)
-            print("loaded", self.name, "from cache!")
+            logging.info("loaded" + self.name + "from cache!")
         else:
-            print("Processing text", self.name)
+            logging.info("Processing text" + self.name)
             preprocessed = self.preprocess()
             treebanked = self.treebank(preprocessed)
             self.productions = self.compute_productions(treebanked)
 
-            with open(".text_cache/" + corpusdir + self.name,'wb') as handle:
+            with open(".text_cache/" + cache_dir + self.name,'wb') as handle:
                 pickle.dump(self.productions, handle, protocol=2)
 
     def clean(self, text):
@@ -166,7 +171,14 @@ class Text:
         global parser
 
         for sentence in preprocessed:
-            treebanked.append(parser.raw_parse(sentence))
+            try:
+                treebanked.append(parser.raw_parse(sentence))
+            except ValueError:
+                # throw away malformatted sentences
+                logging.error("Malformatted sentence in text", self.name, ":", sentence)
+            except OSError:
+                # throw away malformatted sentences
+                logging.error("Malformatted sentence in text", self.name, ":", sentence)
 
         return treebanked
 
@@ -194,16 +206,13 @@ def train_author(candidate):
     global parser
 
     author = Author(candidate)
-    k = 0 # TODO remove
-    if k > 0: print(k, "text(s) per author") # TODO remove
     for training in jsonhandler.trainings[candidate]:
         logging.info(
             "Author '%s': Loading training '%s'", candidate, training)
         text = Text(jsonhandler.getTrainingText(candidate, training),
                 candidate + "-" + training)
         author.add_text(text)
-        k -= 1 # TODO remove
-        if k == 0: break # TODO remove
+
     author.buildPCFG()
 
     return author
@@ -239,20 +248,16 @@ def tira(corpusdir, outputdir):
     for author in text_pool.imap_unordered(train_author, jsonhandler.candidates):
         database.add_author(author)
 
-    # parse unknown test documents
-    unknowns = text_pool.imap_unordered(read_unknown, jsonhandler.unknowns)
+    # parse unknown test documents and run the testcases
+    results = {} # unknown_text -> computed_author
+    for unknown in text_pool.imap_unordered(read_unknown, jsonhandler.unknowns):
+        results[unknown.name] = database.find_author(unknown)
 
     text_pool.close()
     text_pool.join()
 
-    # run the testcases
-    results = {} # unknown_text -> computed_author
+    jsonhandler.storeJson(outputdir, list(results.keys()), list(results.values()))
 
-    for unknown in unknowns:
-        results[unknown.name] = database.find_author(unknown)
-
-    jsonhandler.storeJson(outputdir, results.keys(), results.values())
-    
 
 def main():
     parser = argparse.ArgumentParser(description='Tira submission for the reimplementation of the authorship attribution approach using probabilistic context-free grammars.')
@@ -269,8 +274,13 @@ def main():
     outputdir = args['o']
 
     # initialize cache directory
-    if not os.path.exists(".text_cache/" + corpusdir):
-        os.makedirs(".text_cache/" + corpusdir)
+    global cache_dir
+    cache_dir = corpusdir.split('/')[-1] + "/"
+    if cache_dir == "/":
+        cache_dir = corpusdir.split('/')[-2] + "/"
+
+    if not os.path.exists(".text_cache/" + cache_dir):
+        os.makedirs(".text_cache/" + cache_dir)
 
     # start evaluation
     tira(corpusdir, outputdir)
