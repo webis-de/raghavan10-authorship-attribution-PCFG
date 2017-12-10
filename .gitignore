@@ -1,5 +1,5 @@
 output/
 pan11-*/
-PAN12.1/
+pan12-*/
 *.swp
 __pycache__/

@@ -4,6 +4,7 @@ import string
 import jsonhandler
 import argparse
 
+import string as str
 import math
 from decimal import Decimal
 
@@ -110,7 +111,7 @@ class Text:
 
     """Represents a single text."""
 
-    def __init__(self, raw, name, sent_detector, parser, append_hyphens=True):
+    def __init__(self, raw, name, parser):
         """
         Initialize a text object with raw text.
 
@@ -131,36 +132,32 @@ class Text:
             print("loaded", self.name, "from cache!")
         else:
             print("Processing text", self.name)
-            preprocessed = self.preprocess(sent_detector, append_hyphens)
+            preprocessed = self.preprocess()
             treebanked = self.treebank(preprocessed, parser)
             self.productions = self.compute_productions(treebanked)
 
             with open(".text_cache/" + corpusdir + self.name,'wb') as handle:
                 pickle.dump(self.productions, handle, protocol=2)
 
-    def preprocess(self, sent_detector, append_hyphens=True):
+    def clean(self, text):
+        '''
+            cleans text from anything but alphanumerics and punctuation, replaces new line character
+        '''
+        text = text.replace('<NAME/>','Joe')
+        text = text.replace('\n',' ')
+        text = text.replace('...','-')
+        text = text.replace('  ',' ')
+
+        my_punctuation = str.punctuation[0] + str.punctuation[2:] + "’"
+        text = ''.join(ch for ch in text if (ch.isalnum()) or (ch==' ') or (ch in my_punctuation))
+
+        return text
+
+    def preprocess(self):
         """
         Preprocess the raw text.
         """
-        # split into words to remove line feeds
-        tokenized_words = nltk.word_tokenize(self.raw)
-        # remove hyphens and combine words
-        words = []
-        if append_hyphens:
-            skip = False  # allows to skip the next word after joining two
-            for i in range(len(tokenized_words)):
-                if skip:
-                    skip = False
-                    continue
-                if (len(tokenized_words[i]) > 1 and tokenized_words[i][-1:] == "-"):
-                    words.append(tokenized_words[i][:-1] + tokenized_words[i+1])
-                    skip = True
-                else:
-                    words.append(tokenized_words[i])
-        else:
-            words = tokenized_words
-
-        return sent_detector.sentences_from_tokens(words)
+        return nltk.tokenize.sent_tokenize(self.clean(self.raw))
 
     def treebank(self, preprocessed, parser):
         """
@@ -169,23 +166,7 @@ class Text:
         treebanked = []
 
         for sentence in preprocessed:
-            try:
-                treebanked.extend(parser.parse_sents([sentence]))
-            except ValueError:
-                # throw away malformatted sentences
-                logging.error("Malformatted sentence in text", self.name, ":", sentence)
-            except OSError:
-                # throw away malformatted sentences
-                logging.error("Malformatted sentence in text", self.name, ":", sentence)
-
-#       for tree in treebanked:
-#           for t in tree:
-#               t.pprint()
-#               t.pretty_print()
-#               print("label",t.label())         # tree's constituent type
-#               sys.exit(0)
-#           time.sleep(5)
-#       sys.exit(0)
+            treebanked.append(parser.raw_parse(sentence))
 
         return treebanked
 
@@ -211,8 +192,7 @@ def _traverse_productions(tree):
 
 def train_author(candidate):
     # initialize a stanford parser to treebank texts
-    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
-    sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishRNN.ser.gz")
 
     author = Author(candidate)
     k = 0 # TODO remove
@@ -221,7 +201,7 @@ def train_author(candidate):
         logging.info(
             "Author '%s': Loading training '%s'", candidate, training)
         text = Text(jsonhandler.getTrainingText(candidate, training),
-                candidate + "-" + training, sent_detector, parser)
+                candidate + "-" + training, parser)
         author.add_text(text)
         k -= 1 # TODO remove
         if k == 0: break # TODO remove
@@ -257,13 +237,12 @@ def tira(corpusdir, outputdir):
 
     # initialize a stanford parser to treebank texts
     parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
-    sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
 
     l = 0 # TODO remove
     if l > 0: print(j, "unknown(s)") # TODO remove
     for unknown in jsonhandler.unknowns:
         text = Text(jsonhandler.getUnknownText(unknown),
-                        unknown, sent_detector, parser)
+                        unknown, parser)
         unknowns.append(unknown)
         results.append(database.find_author(text))
         l -= 1 # TODO remove
