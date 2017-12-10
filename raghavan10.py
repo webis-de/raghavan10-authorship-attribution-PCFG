@@ -244,6 +244,10 @@ def tira(corpusdir, outputdir):
     unknowns = [] # avoid problems
     results = []
 
+    # initialize a stanford parser to treebank texts
+    parser = StanfordParser(model_path="edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz")
+    sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
     l = 0 # TODO remove
     if l > 0: print(j, "unknown(s)") # TODO remove
     for unknown in jsonhandler.unknowns:
