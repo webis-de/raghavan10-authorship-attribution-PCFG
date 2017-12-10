@@ -67,14 +67,12 @@ class Author:
         self.pcfg_prob = None # the probabilites of the PCFG by nonterminal symbol
 
         self.text_count = 0   # the number of texts by this author
-        self.word_count = 0   # the number of words by this author
 
     def add_text(self, *texts):
         """Add texts to this author."""
         for text in texts:
             self.texts.append(text)
             self.text_count += 1
-            self.word_count += text.word_count
 
     def buildPCFG(self):
         productions = []
@@ -121,9 +119,6 @@ class Text:
         name -- Name of the text.
         """
         self.name = name
-        self.word_count = -1  # number of words of this text (after tokeni-
-                              # zation and combining words due to hyphens)
-
         self.raw = raw
 
         # load production rules from cache if possible
@@ -165,7 +160,6 @@ class Text:
         else:
             words = tokenized_words
 
-        self.word_count = len(words)
         return sent_detector.sentences_from_tokens(words)
 
     def treebank(self, preprocessed, parser):
