@@ -134,7 +134,7 @@ class Text:
                 self.productions = pickle.load(handle)
             logging.info("loaded" + self.name + "from cache!")
         else:
-            print("Processing text" + self.name)
+            print("Processing text " + self.name)
             preprocessed = self.preprocess()
             treebanked = self.treebank(preprocessed)
             self.productions = self.compute_productions(treebanked)
