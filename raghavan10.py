@@ -134,7 +134,7 @@ class Text:
                 self.productions = pickle.load(handle)
             logging.info("loaded" + self.name + "from cache!")
         else:
-            logging.info("Processing text" + self.name)
+            print("Processing text" + self.name)
             preprocessed = self.preprocess()
             treebanked = self.treebank(preprocessed)
             self.productions = self.compute_productions(treebanked)
@@ -241,7 +241,7 @@ def tira(corpusdir, outputdir):
     database = Database()
 
     # multithreading to parallelize text parsing
-    number_processes = multiprocessing.cpu_count() - 1
+    number_processes = max(1, multiprocessing.cpu_count() - 1)
     text_pool = multiprocessing.Pool(number_processes)
 
     # parse author training documents
