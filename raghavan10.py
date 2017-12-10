@@ -16,7 +16,12 @@ from nltk.grammar import PCFG
 import nltk
 
 import multiprocessing
+import os
+import pickle
 
+
+corpusdir = ""
+outputdir = ""
 
 class Database:
 
@@ -121,10 +126,22 @@ class Text:
 
         self.raw = raw
 
-        print("Processing text", self.name)
-        preprocessed = self.preprocess(sent_detector, append_hyphens)
-        treebanked = self.treebank(preprocessed, parser)
-        self.productions = self.compute_productions(treebanked)
+        # load production rules from cache if possible
+        if not os.path.exists(".text_cache/" + corpusdir):
+            os.makedirs(".text_cache/" + corpusdir)
+
+        if os.path.exists(".text_cache/" + corpusdir + self.name):
+            with open(".text_cache/" + corpusdir + self.name,'rb') as handle:
+                self.productions = pickle.load(handle)
+            print("loaded", self.name, "from cache!")
+        else:
+            print("Processing text", self.name)
+            preprocessed = self.preprocess(sent_detector, append_hyphens)
+            treebanked = self.treebank(preprocessed, parser)
+            self.productions = self.compute_productions(treebanked)
+
+            with open(".text_cache/" + corpusdir + self.name,'wb') as handle:
+                pickle.dump(self.productions, handle, protocol=2)
 
     def preprocess(self, sent_detector, append_hyphens=True):
         """
@@ -210,7 +227,7 @@ def train_author(candidate):
         logging.info(
             "Author '%s': Loading training '%s'", candidate, training)
         text = Text(jsonhandler.getTrainingText(candidate, training),
-                candidate + " " + training, sent_detector, parser)
+                candidate + "-" + training, sent_detector, parser)
         author.add_text(text)
         k -= 1 # TODO remove
         if k == 0: break # TODO remove
@@ -270,7 +287,9 @@ def main():
 
     args = vars(parser.parse_args())
 
+    global corpusdir
     corpusdir = args['i']
+    global outputdir
     outputdir = args['o']
 
     tira(corpusdir, outputdir)
