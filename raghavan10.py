@@ -87,6 +87,10 @@ class Author:
         for text in self.texts:
             productions.extend(text.productions)
 
+        self.texts = None    # free memory
+        import gc
+        gc.collect()
+
         self.pcfg = nltk.grammar.induce_pcfg(Nonterminal("ROOT"), productions)
         self.compute_pcfg_probabilites()
 
@@ -126,7 +130,6 @@ class Text:
         name -- Name of the text.
         """
         self.name = name
-        self.raw = raw
 
         # load production rules from cache if possible
         if os.path.exists(".text_cache/" + cache_dir + self.name):
@@ -135,7 +138,7 @@ class Text:
             print("loaded " + self.name + " from cache!")
         else:
             print("Processing text " + self.name)
-            preprocessed = self.preprocess()
+            preprocessed = self.preprocess(raw)
             treebanked = self.treebank(preprocessed)
             self.productions = self.compute_productions(treebanked)
 
@@ -156,11 +159,11 @@ class Text:
 
         return text
 
-    def preprocess(self):
+    def preprocess(self, raw):
         """
         Preprocess the raw text.
         """
-        return nltk.tokenize.sent_tokenize(self.clean(self.raw))
+        return nltk.tokenize.sent_tokenize(self.clean(raw))
 
     def treebank(self, preprocessed):
         """
