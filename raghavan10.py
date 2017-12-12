@@ -132,7 +132,7 @@ class Text:
         if os.path.exists(".text_cache/" + cache_dir + self.name):
             with open(".text_cache/" + cache_dir + self.name,'rb') as handle:
                 self.productions = pickle.load(handle)
-            logging.info("loaded" + self.name + "from cache!")
+            print("loaded " + self.name + " from cache!")
         else:
             print("Processing text " + self.name)
             preprocessed = self.preprocess()
