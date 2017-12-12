@@ -5,3 +5,4 @@ pan12-*/
 __pycache__/
 authorship_attribution_eval.m
 parseJSON.m
+.text_cache/
