@@ -153,6 +153,7 @@ class Text:
         text = text.replace('\n',' ')
         text = text.replace('...','-')
         text = text.replace('  ',' ')
+        text = text.replace("’","'")
 
         my_punctuation = str.punctuation[0] + str.punctuation[2:] + "’"
         text = ''.join(ch for ch in text if (ch.isalnum()) or (ch==' ') or (ch in my_punctuation))
